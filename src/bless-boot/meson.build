@@ -17,7 +17,7 @@ executables += [
                         'HAVE_BLKID',
                         'ENABLE_BOOTLOADER',
                 ],
-                'sources' : files('bless-boot.c'),
+                'sources' : files('bless-boot-tool.c'),
                 'link_with' : boot_link_with,
                 'dependencies' : libblkid,
         },
