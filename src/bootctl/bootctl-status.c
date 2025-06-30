@@ -433,6 +433,7 @@ int verb_status(int argc, char *argv[], void *userdata) {
                 };
                 _cleanup_free_ char *fw_type = NULL, *fw_info = NULL, *loader = NULL, *loader_path = NULL, *stub = NULL, *stub_path = NULL,
                         *current_entry = NULL, *oneshot_entry = NULL, *default_entry = NULL, *sysfail_entry = NULL, *sysfail_reason = NULL;
+                _cleanup_(sd_json_variant_unrefp) sd_json_variant *object = NULL;
                 uint64_t loader_features = 0, stub_features = 0;
                 int have;
 
@@ -451,13 +452,27 @@ int verb_status(int argc, char *argv[], void *userdata) {
                 (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderSysFailReason"), &sysfail_reason);
 
                 SecureBootMode secure = efi_get_secure_boot_mode();
-                printf("%sSystem:%s\n", ansi_underline(), ansi_normal());
-                printf("      Firmware: %s%s (%s)%s\n", ansi_highlight(), strna(fw_type), strna(fw_info), ansi_normal());
-                printf(" Firmware Arch: %s\n", get_efi_arch());
-                printf("   Secure Boot: %s%s%s",
-                       IN_SET(secure, SECURE_BOOT_USER, SECURE_BOOT_DEPLOYED) ? ansi_highlight_green() : ansi_normal(),
-                       enabled_disabled(IN_SET(secure, SECURE_BOOT_USER, SECURE_BOOT_DEPLOYED)),
-                       ansi_normal());
+                if (sd_json_format_enabled(arg_json_format_flags)) {
+                        r = sd_json_buildo(&object,
+                                SD_JSON_BUILD_PAIR("System", SD_JSON_BUILD_OBJECT(
+                                        SD_JSON_BUILD_PAIR_STRING("FirmwareArch", get_efi_arch())
+                                ))
+                        );
+                        if (r < 0)
+                                return log_oom();
+
+                        sd_json_variant_dump(object, 0, stdout, NULL);
+        if (r < 0)
+                return log_error_errno(r, "Failed to format JSON object: %m");
+                } else {
+                        printf("%sSystem:%s\n", ansi_underline(), ansi_normal());
+                        printf("      Firmware: %s%s (%s)%s\n", ansi_highlight(), strna(fw_type), strna(fw_info), ansi_normal());
+                        printf(" Firmware Arch: %s\n", get_efi_arch());
+                        printf("   Secure Boot: %s%s%s",
+                               IN_SET(secure, SECURE_BOOT_USER, SECURE_BOOT_DEPLOYED) ? ansi_highlight_green() : ansi_normal(),
+                               enabled_disabled(IN_SET(secure, SECURE_BOOT_USER, SECURE_BOOT_DEPLOYED)),
+                               ansi_normal());
+                }
 
                 if (secure != SECURE_BOOT_DISABLED)
                         printf(" (%s)\n", secure_boot_mode_to_string(secure));
@@ -601,26 +616,26 @@ int verb_status(int argc, char *argv[], void *userdata) {
                 printf("\n");
         }
 
-        if (arg_esp_path)
-                RET_GATHER(r, status_binaries(arg_esp_path, esp_uuid));
-
-        if (!arg_root && is_efi_boot())
-                RET_GATHER(r, status_variables());
-
-        if (arg_esp_path || arg_xbootldr_path) {
-                _cleanup_(boot_config_free) BootConfig config = BOOT_CONFIG_NULL;
-
-                k = boot_config_load_and_select(&config,
-                                                arg_esp_path, esp_devid,
-                                                arg_xbootldr_path, xbootldr_devid);
-                RET_GATHER(r, k);
-
-                if (k >= 0)
-                        RET_GATHER(r,
-                                   status_entries(&config,
-                                                  arg_esp_path, esp_uuid,
-                                                  arg_xbootldr_path, xbootldr_uuid));
-        }
+        // if (arg_esp_path)
+        //         RET_GATHER(r, status_binaries(arg_esp_path, esp_uuid));
+        //
+        // if (!arg_root && is_efi_boot())
+        //         RET_GATHER(r, status_variables());
+        //
+        // if (arg_esp_path || arg_xbootldr_path) {
+        //         _cleanup_(boot_config_free) BootConfig config = BOOT_CONFIG_NULL;
+        //
+        //         k = boot_config_load_and_select(&config,
+        //                                         arg_esp_path, esp_devid,
+        //                                         arg_xbootldr_path, xbootldr_devid);
+        //         RET_GATHER(r, k);
+        //
+        //         if (k >= 0)
+        //                 RET_GATHER(r,
+        //                            status_entries(&config,
+        //                                           arg_esp_path, esp_uuid,
+        //                                           arg_xbootldr_path, xbootldr_uuid));
+        // }
 
         return r;
 }
