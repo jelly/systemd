@@ -5,8 +5,8 @@
 set -eux
 set -o pipefail
 
-rm -fr /tmp/{f,F,w}
-mkdir  /tmp/{f,F,w}
+rm -fr /tmp/{f,F,w,x}
+mkdir  /tmp/{f,F,w,x}
 touch /tmp/file-owned-by-root
 
 #
@@ -273,3 +273,35 @@ chown -R --no-dereference daemon:daemon /tmp/w/daemon
 f     /tmp/w/daemon/unsafe-symlink/exploit    0644 daemon daemon - -
 EOF
 test ! -e /tmp/w/daemon/unsafe-symlink/exploit
+
+### set xattrs
+touch /tmp/x/file
+systemd-tmpfiles --create - <<EOF
+t     /tmp/x/file    - - - - user.comment=test
+EOF
+grep -q 'user.comment="test"' <(getfattr -n user.comment /tmp/x/file)
+
+### can set multiple xattrs
+touch /tmp/x/multiple
+systemd-tmpfiles --create - <<EOF
+t     /tmp/x/multiple    - - - - user.comment=test user.attr-with-spaces="foo bar"
+EOF
+grep -q 'user.comment="test"' <(getfattr -n user.comment /tmp/x/multiple)
+grep -q 'user.attr-with-spaces="foo bar"' <(getfattr -n user.attr-with-spaces /tmp/x/multiple)
+
+### xattrs does not follow symlinks
+ln -s /tmp/x/file /tmp/x/symlink
+systemd-tmpfiles --create - <<EOF
+t     /tmp/x/symlink    - - - - user.comment=link
+EOF
+grep -q 'user.comment="link"' <(getfattr -n user.comment /tmp/x/symlink)
+
+### set xattrs recursively
+mkdir -p /tmp/x/parent/sub
+touch /tmp/x/parent/sub/file
+systemd-tmpfiles --create - <<EOF
+T     /tmp/x/parent    - - - - user.comment=recurse
+EOF
+
+grep -q 'user.comment="recurse"' <(getfattr -n user.comment /tmp/x/parent/sub/file)
+grep -q 'user.comment="recurse"' <(getfattr -n user.comment /tmp/x/parent/sub)
