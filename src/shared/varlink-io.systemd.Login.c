@@ -85,6 +85,8 @@ static SD_VARLINK_DEFINE_METHOD(
                 SD_VARLINK_FIELD_COMMENT("The identifier string of the session to release. If unspecified or 'self', will return the callers session."),
                 SD_VARLINK_DEFINE_INPUT(Id, SD_VARLINK_STRING, SD_VARLINK_NULLABLE));
 
+static SD_VARLINK_DEFINE_METHOD(ListSessions);
+
 static SD_VARLINK_DEFINE_ERROR(NoSuchSession);
 static SD_VARLINK_DEFINE_ERROR(NoSuchSeat);
 static SD_VARLINK_DEFINE_ERROR(AlreadySessionMember);
@@ -106,6 +108,8 @@ SD_VARLINK_DEFINE_INTERFACE(
                 &vl_method_CreateSession,
                 SD_VARLINK_SYMBOL_COMMENT("Releases an existing session. Currently, will be refuses unless originating from the session to release itself."),
                 &vl_method_ReleaseSession,
+                SD_VARLINK_SYMBOL_COMMENT("List sessions."),
+                &vl_method_ListSessions,
                 SD_VARLINK_SYMBOL_COMMENT("No session by this name found"),
                 &vl_error_NoSuchSession,
                 SD_VARLINK_SYMBOL_COMMENT("No seat by this name found"),

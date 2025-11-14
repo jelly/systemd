@@ -328,6 +328,66 @@ static int vl_method_release_session(sd_varlink *link, sd_json_variant *paramete
         return sd_varlink_reply(link, NULL);
 }
 
+static int make_session_json(Session *s, sd_json_variant **ret) {
+        int r;
+
+        assert(s);
+
+        r = sd_json_buildo(ret,
+                           SD_JSON_BUILD_PAIR("id", SD_JSON_BUILD_STRING(s->id))
+                           );
+        if (r < 0)
+                return log_error_errno(r, "Failed to build transfer JSON data: %m");
+
+        return 0;
+}
+
+static int vl_method_list_sessions(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
+        Manager *m = ASSERT_PTR(userdata);
+        int r;
+
+        Session *previous = NULL, *s;
+        HASHMAP_FOREACH(s, m->sessions) {
+                _cleanup_free_ char *path = NULL;
+                dual_timestamp idle_ts;
+                // bool idle;
+
+                assert(s->user);
+
+                r = session_get_idle_hint(s, &idle_ts);
+                if (r < 0)
+                        return r;
+
+                if (previous) {
+                        _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+
+                        r = make_session_json(previous, &v);
+                        if (r < 0)
+                                return r;
+
+                        r = sd_varlink_notify(link, v);
+                        if (r < 0)
+                                return r;
+                }
+
+                previous = s;
+        }
+
+        if (previous) {
+                _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+
+                r = make_session_json(previous, &v);
+                if (r < 0)
+                        return r;
+
+                return sd_varlink_reply(link, v);
+        }
+
+        // Error case
+        return sd_varlink_error(link, "io.systemd.Import.NoTransfers", NULL);
+        // return sd_varlink_reply(link, NULL);
+}
+
 int manager_varlink_init(Manager *m, int fd) {
         _cleanup_(sd_varlink_server_unrefp) sd_varlink_server *s = NULL;
         _unused_ _cleanup_close_ int fd_close = fd;
@@ -358,6 +418,7 @@ int manager_varlink_init(Manager *m, int fd) {
                         s,
                         "io.systemd.Login.CreateSession",    vl_method_create_session,
                         "io.systemd.Login.ReleaseSession",   vl_method_release_session,
+                        "io.systemd.Login.ListSessions",     vl_method_list_sessions,
                         "io.systemd.service.Ping",           varlink_method_ping,
                         "io.systemd.service.SetLogLevel",    varlink_method_set_log_level,
                         "io.systemd.service.GetEnvironment", varlink_method_get_environment);
