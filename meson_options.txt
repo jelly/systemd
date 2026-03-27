@@ -574,3 +574,6 @@ option('default-mountfsd-trusted-directories', type : 'boolean', value: false,
 
 option('default-oci-registry', type : 'string', value : 'docker.io',
        description : 'Default OCI registry name')
+
+option('yaml', type : 'boolean', value : true,
+       description : 'support for YAML unit file configuration (the superior format)')

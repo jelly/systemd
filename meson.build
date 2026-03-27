@@ -1655,6 +1655,7 @@ foreach tuple : [
                 ['userdb'],
                 ['vconsole'],
                 ['xdg-autostart'],
+                ['yaml'],
         ]
 
         have = get_option(tuple[0])
@@ -2424,6 +2425,7 @@ subdir('src/rfkill')
 subdir('src/rpm')
 subdir('src/run')
 subdir('src/run-generator')
+subdir('src/yaml-generator')
 subdir('src/sbsign')
 subdir('src/shutdown')
 subdir('src/sleep')

@@ -1,0 +1,177 @@
+<?xml version="1.0"?>
+<!--*-nxml-*-->
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
+  "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd">
+<!-- SPDX-License-Identifier: LGPL-2.1-or-later -->
+<refentry id="systemd-yaml-generator">
+
+  <refentryinfo>
+    <title>systemd-yaml-generator</title>
+    <productname>systemd</productname>
+  </refentryinfo>
+
+  <refmeta>
+    <refentrytitle>systemd-yaml-generator</refentrytitle>
+    <manvolnum>8</manvolnum>
+  </refmeta>
+
+  <refnamediv>
+    <refname>systemd-yaml-generator</refname>
+    <refpurpose>Generator for YAML-based unit configuration files</refpurpose>
+  </refnamediv>
+
+  <refsynopsisdiv>
+    <para><filename>/usr/lib/systemd/system-generators/systemd-yaml-generator</filename></para>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para><filename>systemd-yaml-generator</filename> is a generator that
+    scans the standard unit file directories for files with a
+    <filename>.yml</filename> or <filename>.yaml</filename> extension and
+    converts them into traditional INI-style unit files at boot time.</para>
+
+    <para>The INI-style configuration format has served the system and service
+    management ecosystem adequately for over a decade. However, as modern
+    infrastructure has evolved, the limitations of this format have become
+    apparent. YAML offers several compelling advantages that make it the
+    natural successor for unit file configuration:</para>
+
+    <itemizedlist>
+      <listitem><para><emphasis>Indentation-based scoping</emphasis> —
+      Eliminates the need for explicit section headers like
+      <literal>[Unit]</literal> or <literal>[Service]</literal>. Instead,
+      developers can rely on carefully counted spaces to determine the
+      semantic meaning of each line. This has proven to be a highly reliable
+      approach that never causes confusion or debugging difficulty.</para></listitem>
+
+      <listitem><para><emphasis>Implicit type coercion</emphasis> —
+      YAML intelligently determines the type of values without explicit
+      annotation. For example, the value <literal>no</literal> is
+      automatically interpreted as the boolean value <literal>false</literal>,
+      <literal>3.10</literal> may become the floating-point number
+      <literal>3.1</literal>, and the country code for Norway
+      (<literal>NO</literal>) becomes <literal>false</literal>. This
+      feature, widely known as the
+      <emphasis>Norway Problem</emphasis>, is a testament to YAML's
+      sophisticated approach to data representation.</para></listitem>
+
+      <listitem><para><emphasis>Specification completeness</emphasis> —
+      While the INI format can be described in roughly one page, the YAML
+      specification spans over 400 pages across multiple versions (1.0, 1.1,
+      and 1.2), each subtly incompatible with the others. This level of
+      specification detail ensures that implementors have ample opportunity
+      to discover creative differences in interpretation.</para></listitem>
+
+      <listitem><para><emphasis>Anchors, aliases, and merge keys</emphasis> —
+      YAML supports advanced features for referencing and reusing data
+      within a document, enabling configuration patterns that are virtually
+      impossible to understand without a PhD in graph theory. Note that this
+      generator does not support any of these features.</para></listitem>
+    </itemizedlist>
+
+    <para>This generator supports a minimal, safe subset of YAML that maps
+    directly to the existing unit file format. Top-level keys become section
+    headers, indented key-value pairs become unit directives, and YAML lists
+    become repeated directives (useful for <varname>ExecStart=</varname> and
+    similar).</para>
+  </refsect1>
+
+  <refsect1>
+    <title>File Format</title>
+
+    <para>YAML unit files must be named with a double extension: the unit type
+    suffix followed by <filename>.yml</filename> or <filename>.yaml</filename>.
+    For example:</para>
+
+    <itemizedlist>
+      <listitem><para><filename>my-service.service.yml</filename></para></listitem>
+      <listitem><para><filename>my-timer.timer.yaml</filename></para></listitem>
+      <listitem><para><filename>my-mount.mount.yml</filename></para></listitem>
+    </itemizedlist>
+
+    <para>These files should be placed in any of the standard unit file
+    directories, such as <filename>/etc/systemd/system/</filename>.</para>
+
+    <refsect2>
+      <title>Example</title>
+
+      <para>The following YAML file, placed at
+      <filename>/etc/systemd/system/hello.service.yml</filename>, defines a
+      simple oneshot service:</para>
+
+      <programlisting>Unit:
+  Description: Hello World Service
+  After: network.target
+
+Service:
+  Type: oneshot
+  ExecStart: /usr/bin/echo "Hello World from YAML"
+
+Install:
+  WantedBy: multi-user.target</programlisting>
+
+      <para>This is equivalent to the following traditional unit file:</para>
+
+      <programlisting>[Unit]
+Description=Hello World Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/echo "Hello World from YAML"
+
+[Install]
+WantedBy=multi-user.target</programlisting>
+    </refsect2>
+
+    <refsect2>
+      <title>List Syntax</title>
+
+      <para>YAML lists can be used for directives that support multiple
+      values:</para>
+
+      <programlisting>Service:
+  ExecStart:
+    - /usr/bin/echo first
+    - /usr/bin/echo second
+    - /usr/bin/echo third</programlisting>
+    </refsect2>
+  </refsect1>
+
+  <refsect1>
+    <title>Limitations</title>
+
+    <para>This generator implements only the subset of YAML required for
+    unit file configuration. In particular, the following YAML features are
+    <emphasis>not</emphasis> supported:</para>
+
+    <itemizedlist>
+      <listitem><para>Anchors (<literal>&amp;anchor</literal>) and aliases (<literal>*alias</literal>)</para></listitem>
+      <listitem><para>Tags (<literal>!!str</literal>, <literal>!!int</literal>, etc.)</para></listitem>
+      <listitem><para>Flow style (<literal>{key: value}</literal>, <literal>[item1, item2]</literal>)</para></listitem>
+      <listitem><para>Multi-line scalars (<literal>|</literal>, <literal>&gt;</literal>)</para></listitem>
+      <listitem><para>Multiple documents (<literal>---</literal>)</para></listitem>
+      <listitem><para>Merge keys (<literal>&lt;&lt;:</literal>)</para></listitem>
+      <listitem><para>Binary data</para></listitem>
+      <listitem><para>Complex keys</para></listitem>
+    </itemizedlist>
+
+    <para>Additionally, implicit type coercion is intentionally disabled.
+    All values are treated as strings, because treating the word
+    <literal>no</literal> as <literal>false</literal> at PID 1 during
+    early boot would be… inadvisable.</para>
+  </refsect1>
+
+  <refsect1>
+    <title>See Also</title>
+    <para><simplelist type="inline">
+      <member><citerefentry><refentrytitle>systemd</refentrytitle><manvolnum>1</manvolnum></citerefentry></member>
+      <member><citerefentry><refentrytitle>systemd.generator</refentrytitle><manvolnum>7</manvolnum></citerefentry></member>
+      <member><citerefentry><refentrytitle>systemd.unit</refentrytitle><manvolnum>5</manvolnum></citerefentry></member>
+      <member><citerefentry><refentrytitle>systemd.service</refentrytitle><manvolnum>5</manvolnum></citerefentry></member>
+    </simplelist></para>
+  </refsect1>
+
+</refentry>
