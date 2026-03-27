@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include "sd-json.h"
 #include "sd-varlink.h"
 
 #include "alloc-util.h"
@@ -326,6 +327,187 @@ static void print_yes_no_line(bool first, bool good, const char *name) {
                name);
 }
 
+static int status_to_json(
+                bool has_efi,
+                sd_id128_t esp_uuid,
+                sd_id128_t xbootldr_uuid,
+                dev_t esp_devid,
+                dev_t xbootldr_devid) {
+
+        _cleanup_(sd_json_variant_unrefp) sd_json_variant *object = NULL;
+        int r;
+
+        r = sd_json_variant_merge_objectbo(
+                        &object,
+                        SD_JSON_BUILD_PAIR_BOOLEAN("efi", has_efi));
+        if (r < 0)
+                return log_oom();
+
+        if (has_efi) {
+                _cleanup_free_ char *fw_type = NULL, *fw_info = NULL, *loader = NULL, *loader_path = NULL,
+                        *stub = NULL, *stub_path = NULL,
+                        *current_entry = NULL, *oneshot_entry = NULL, *preferred_entry = NULL,
+                        *default_entry = NULL, *sysfail_entry = NULL, *sysfail_reason = NULL;
+                uint64_t loader_features = 0, stub_features = 0;
+
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderFirmwareType"), &fw_type);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderFirmwareInfo"), &fw_info);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderInfo"), &loader);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("StubInfo"), &stub);
+                (void) efi_get_variable_path_and_warn(EFI_LOADER_VARIABLE_STR("LoaderImageIdentifier"), &loader_path);
+                (void) efi_get_variable_path_and_warn(EFI_LOADER_VARIABLE_STR("StubImageIdentifier"), &stub_path);
+                (void) efi_loader_get_features(&loader_features);
+                (void) efi_stub_get_features(&stub_features);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderEntrySelected"), &current_entry);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderEntryOneShot"), &oneshot_entry);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderEntryPreferred"), &preferred_entry);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderEntryDefault"), &default_entry);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderEntrySysFail"), &sysfail_entry);
+                (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderSysFailReason"), &sysfail_reason);
+
+                SecureBootMode secure = efi_get_secure_boot_mode();
+                Tpm2Support s = tpm2_support_full(TPM2_SUPPORT_FIRMWARE|TPM2_SUPPORT_DRIVER);
+                int measured_uki = efi_measured_uki(LOG_DEBUG);
+                int measured_os = efi_measured_os(LOG_DEBUG);
+                int reboot_to_fw = efi_get_reboot_to_firmware();
+
+                const char *secure_boot_str = secure_boot_mode_to_string(secure);
+
+                /* System section */
+                r = sd_json_variant_merge_objectbo(
+                                &object,
+                                SD_JSON_BUILD_PAIR("system", SD_JSON_BUILD_OBJECT(
+                                        SD_JSON_BUILD_PAIR_CONDITION(!!fw_type, "firmwareType", SD_JSON_BUILD_STRING(fw_type)),
+                                        SD_JSON_BUILD_PAIR_CONDITION(!!fw_info, "firmwareInfo", SD_JSON_BUILD_STRING(fw_info)),
+                                        SD_JSON_BUILD_PAIR_STRING("firmwareArch", get_efi_arch()),
+                                        SD_JSON_BUILD_PAIR_CONDITION(!!secure_boot_str, "secureBoot", SD_JSON_BUILD_STRING(secure_boot_str)),
+                                        SD_JSON_BUILD_PAIR_BOOLEAN("secureBootEnabled", IN_SET(secure, SECURE_BOOT_USER, SECURE_BOOT_DEPLOYED)),
+                                        SD_JSON_BUILD_PAIR_BOOLEAN("tpm2FirmwareSupport", FLAGS_SET(s, TPM2_SUPPORT_FIRMWARE)),
+                                        SD_JSON_BUILD_PAIR_BOOLEAN("tpm2DriverSupport", FLAGS_SET(s, TPM2_SUPPORT_DRIVER)),
+                                        SD_JSON_BUILD_PAIR_CONDITION(measured_uki >= 0, "measuredUKI", SD_JSON_BUILD_BOOLEAN(measured_uki > 0)),
+                                        SD_JSON_BUILD_PAIR_CONDITION(measured_os >= 0, "measuredOS", SD_JSON_BUILD_BOOLEAN(measured_os > 0)),
+                                        SD_JSON_BUILD_PAIR_CONDITION(reboot_to_fw >= 0 || reboot_to_fw == -EOPNOTSUPP, "rebootToFirmwareSupported", SD_JSON_BUILD_BOOLEAN(reboot_to_fw >= 0)),
+                                        SD_JSON_BUILD_PAIR_CONDITION(reboot_to_fw >= 0, "rebootToFirmware", SD_JSON_BUILD_BOOLEAN(reboot_to_fw > 0)))));
+                if (r < 0)
+                        return log_oom();
+
+                /* Loader section */
+                if (loader) {
+                        sd_id128_t loader_partition_uuid = SD_ID128_NULL;
+                        (void) efi_loader_get_device_part_uuid(&loader_partition_uuid);
+
+                        _cleanup_free_ char *loader_url = NULL;
+                        (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("LoaderDeviceURL"), &loader_url);
+
+                        r = sd_json_variant_merge_objectbo(
+                                        &object,
+                                        SD_JSON_BUILD_PAIR("loader", SD_JSON_BUILD_OBJECT(
+                                                SD_JSON_BUILD_PAIR_STRING("product", loader),
+                                                SD_JSON_BUILD_PAIR_UNSIGNED("features", loader_features),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!sd_id128_is_null(loader_partition_uuid), "partitionUuid", SD_JSON_BUILD_UUID(loader_partition_uuid)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!loader_path, "path", SD_JSON_BUILD_STRING(loader_path)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!loader_url, "url", SD_JSON_BUILD_STRING(loader_url)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!current_entry, "currentEntry", SD_JSON_BUILD_STRING(current_entry)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!preferred_entry, "preferredEntry", SD_JSON_BUILD_STRING(preferred_entry)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!default_entry, "defaultEntry", SD_JSON_BUILD_STRING(default_entry)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!oneshot_entry, "oneshotEntry", SD_JSON_BUILD_STRING(oneshot_entry)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!sysfail_entry, "sysfailEntry", SD_JSON_BUILD_STRING(sysfail_entry)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!sysfail_reason, "sysfailReason", SD_JSON_BUILD_STRING(sysfail_reason)))));
+                        if (r < 0)
+                                return log_oom();
+                }
+
+                /* Stub section */
+                if (stub) {
+                        sd_id128_t stub_partition_uuid = SD_ID128_NULL;
+                        (void) efi_stub_get_device_part_uuid(&stub_partition_uuid);
+
+                        _cleanup_free_ char *stub_url = NULL;
+                        (void) efi_get_variable_string_and_warn(EFI_LOADER_VARIABLE_STR("StubDeviceURL"), &stub_url);
+
+                        r = sd_json_variant_merge_objectbo(
+                                        &object,
+                                        SD_JSON_BUILD_PAIR("stub", SD_JSON_BUILD_OBJECT(
+                                                SD_JSON_BUILD_PAIR_STRING("product", stub),
+                                                SD_JSON_BUILD_PAIR_UNSIGNED("features", stub_features),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!sd_id128_is_null(stub_partition_uuid), "partitionUuid", SD_JSON_BUILD_UUID(stub_partition_uuid)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!stub_path, "path", SD_JSON_BUILD_STRING(stub_path)),
+                                                SD_JSON_BUILD_PAIR_CONDITION(!!stub_url, "url", SD_JSON_BUILD_STRING(stub_url)))));
+                        if (r < 0)
+                                return log_oom();
+                }
+
+                /* Random seed section */
+                bool have_token = access(EFIVAR_PATH(EFI_LOADER_VARIABLE_STR("LoaderSystemToken")), F_OK) >= 0;
+                bool have_random_seed = false;
+                if (arg_esp_path) {
+                        _cleanup_free_ char *p = NULL;
+                        p = path_join(arg_esp_path, "/loader/random-seed");
+                        if (!p)
+                                return log_oom();
+                        have_random_seed = access(p, F_OK) >= 0;
+                }
+
+                r = sd_json_variant_merge_objectbo(
+                                &object,
+                                SD_JSON_BUILD_PAIR("randomSeed", SD_JSON_BUILD_OBJECT(
+                                        SD_JSON_BUILD_PAIR_BOOLEAN("systemToken", have_token),
+                                        SD_JSON_BUILD_PAIR_CONDITION(!!arg_esp_path, "exists", SD_JSON_BUILD_BOOLEAN(have_random_seed)))));
+                if (r < 0)
+                        return log_oom();
+        }
+
+        /* ESP and XBOOTLDR info */
+        r = sd_json_variant_merge_objectbo(
+                        &object,
+                        SD_JSON_BUILD_PAIR_CONDITION(!!arg_esp_path, "esp", SD_JSON_BUILD_OBJECT(
+                                SD_JSON_BUILD_PAIR_STRING("path", arg_esp_path),
+                                SD_JSON_BUILD_PAIR_CONDITION(!sd_id128_is_null(esp_uuid), "partitionUuid", SD_JSON_BUILD_UUID(esp_uuid)))),
+                        SD_JSON_BUILD_PAIR_CONDITION(!!arg_xbootldr_path, "xbootldr", SD_JSON_BUILD_OBJECT(
+                                SD_JSON_BUILD_PAIR_STRING("path", arg_xbootldr_path),
+                                SD_JSON_BUILD_PAIR_CONDITION(!sd_id128_is_null(xbootldr_uuid), "partitionUuid", SD_JSON_BUILD_UUID(xbootldr_uuid)))));
+        if (r < 0)
+                return log_oom();
+
+        /* Boot entries */
+        if (arg_esp_path || arg_xbootldr_path) {
+                _cleanup_(boot_config_free) BootConfig config = BOOT_CONFIG_NULL;
+
+                r = boot_config_load_and_select(&config,
+                                                arg_esp_path, esp_devid,
+                                                arg_xbootldr_path, xbootldr_devid);
+                if (r >= 0) {
+                        _cleanup_(sd_json_variant_unrefp) sd_json_variant *entries = NULL;
+
+                        for (size_t i = 0; i < config.n_entries; i++) {
+                                _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+
+                                r = boot_entry_to_json(&config, i, &v);
+                                if (r < 0)
+                                        return log_oom();
+
+                                r = sd_json_variant_append_array(&entries, v);
+                                if (r < 0)
+                                        return log_oom();
+                        }
+
+                        if (!entries) {
+                                r = sd_json_variant_new_array(&entries, NULL, 0);
+                                if (r < 0)
+                                        return log_oom();
+                        }
+
+                        r = sd_json_variant_merge_objectbo(
+                                        &object,
+                                        SD_JSON_BUILD_PAIR_VARIANT("entries", entries));
+                        if (r < 0)
+                                return log_oom();
+                }
+        }
+
+        return sd_json_variant_dump(object, arg_json_format_flags | SD_JSON_FORMAT_EMPTY_ARRAY, NULL, NULL);
+}
+
 int verb_status(int argc, char *argv[], uintptr_t _data, void *userdata) {
         sd_id128_t esp_uuid = SD_ID128_NULL, xbootldr_uuid = SD_ID128_NULL;
         dev_t esp_devid = 0, xbootldr_devid = 0;
@@ -371,6 +553,9 @@ int verb_status(int argc, char *argv[], uintptr_t _data, void *userdata) {
 
         r = 0; /* If we couldn't determine the path, then don't consider that a problem from here on, just
                 * show what we can show */
+
+        if (sd_json_format_enabled(arg_json_format_flags))
+                return status_to_json(has_efi, esp_uuid, xbootldr_uuid, esp_devid, xbootldr_devid);
 
         pager_open(arg_pager_flags);
 
