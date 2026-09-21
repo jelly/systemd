@@ -878,6 +878,10 @@ static int parse_argv(int argc, char *argv[], char ***remaining_args) {
                         arg_action = ACTION_PRINT_HEADER;
                         break;
 
+                OPTION_LONG("compression-stats", NULL, "Show compression statistics of journal files"):
+                        arg_action = ACTION_COMPRESSION_STATS;
+                        break;
+
                 OPTION_LONG("list-catalog", NULL, "Show all message IDs in the catalog"):
                         arg_action = ACTION_LIST_CATALOG;
                         break;
@@ -1073,6 +1077,9 @@ static int run(int argc, char *argv[]) {
 
         case ACTION_DISK_USAGE:
                 return action_disk_usage();
+
+        case ACTION_COMPRESSION_STATS:
+                return action_compression_stats();
 
         case ACTION_LIST_BOOTS:
                 return action_list_boots();

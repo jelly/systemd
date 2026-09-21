@@ -353,3 +353,97 @@ int action_list_namespaces(void) {
 
         return 0;
 }
+
+int action_compression_stats(void) {
+        _cleanup_(sd_journal_closep) sd_journal *j = NULL;
+        uint64_t total_compressed_size = 0, total_original_size = 0;
+        uint64_t total_n_compressed = 0, total_n_uncompressed = 0;
+        uint64_t total_n_files = 0;
+        int r;
+
+        assert(arg_action == ACTION_COMPRESSION_STATS);
+
+        r = acquire_journal(&j);
+        if (r < 0)
+                return r;
+
+        JournalFile *f;
+        ORDERED_HASHMAP_FOREACH(f, j->files) {
+                uint64_t n_compressed = 0, n_uncompressed = 0;
+                uint64_t compressed_size = 0, original_size = 0;
+                uint64_t p;
+
+                p = le64toh(f->header->header_size);
+                for (;;) {
+                        Object *o;
+
+                        if (le64toh(f->header->tail_object_offset) == 0)
+                                break;
+
+                        r = journal_file_move_to_object(f, OBJECT_UNUSED, p, &o);
+                        if (r < 0)
+                                return log_error_errno(r, "Failed to move to object at offset %"PRIu64" in %s: %m",
+                                                       p, f->path);
+
+                        if (o->object.type == OBJECT_DATA) {
+                                uint64_t payload_size = le64toh(o->object.size) - journal_file_data_payload_offset(f);
+                                Compression c = COMPRESSION_FROM_OBJECT(o);
+
+                                if (c != COMPRESSION_NONE && c >= 0) {
+                                        const void *d;
+                                        size_t decompressed_size;
+
+                                        r = journal_file_data_payload(f, o, p, NULL, 0, 0, &d, &decompressed_size);
+                                        if (r < 0)
+                                                log_warning_errno(r, "Failed to decompress object at offset %"PRIu64" in %s, skipping: %m",
+                                                                  p, f->path);
+                                        else {
+                                                n_compressed++;
+                                                compressed_size += payload_size;
+                                                original_size += decompressed_size;
+                                        }
+                                } else {
+                                        n_uncompressed++;
+                                        compressed_size += payload_size;
+                                        original_size += payload_size;
+                                }
+                        }
+
+                        if (p == le64toh(f->header->tail_object_offset))
+                                break;
+
+                        p += ALIGN64(le64toh(o->object.size));
+                }
+
+                Compression fc = JOURNAL_FILE_COMPRESSION(f);
+                printf("File: %s\n", f->path);
+                printf("  Compression: %s\n", compression_to_string(fc));
+                printf("  Data objects: %"PRIu64" (%"PRIu64" compressed, %"PRIu64" uncompressed)\n",
+                       n_compressed + n_uncompressed, n_compressed, n_uncompressed);
+                printf("  Original data size: %s\n", FORMAT_BYTES(original_size));
+                printf("  Compressed data size: %s\n", FORMAT_BYTES(compressed_size));
+                if (original_size > 0)
+                        printf("  Compression saving: %.1f%%\n",
+                               100.0 - 100.0 * (double) compressed_size / (double) original_size);
+
+                total_compressed_size += compressed_size;
+                total_original_size += original_size;
+                total_n_compressed += n_compressed;
+                total_n_uncompressed += n_uncompressed;
+                total_n_files++;
+        }
+
+        if (total_n_files > 1) {
+                printf("\nTotal:\n");
+                printf("  Journal files: %"PRIu64"\n", total_n_files);
+                printf("  Data objects: %"PRIu64" (%"PRIu64" compressed, %"PRIu64" uncompressed)\n",
+                       total_n_compressed + total_n_uncompressed, total_n_compressed, total_n_uncompressed);
+                printf("  Original data size: %s\n", FORMAT_BYTES(total_original_size));
+                printf("  Compressed data size: %s\n", FORMAT_BYTES(total_compressed_size));
+                if (total_original_size > 0)
+                        printf("  Compression saving: %.1f%%\n",
+                               100.0 - 100.0 * (double) total_compressed_size / (double) total_original_size);
+        }
+
+        return 0;
+}

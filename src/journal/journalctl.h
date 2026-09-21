@@ -26,6 +26,7 @@ typedef enum JournalctlAction {
         ACTION_ROTATE,
         ACTION_VACUUM,
         ACTION_ROTATE_AND_VACUUM,
+        ACTION_COMPRESSION_STATS,
 } JournalctlAction;
 
 extern JournalctlAction arg_action;
