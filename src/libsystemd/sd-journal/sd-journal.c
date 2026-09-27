@@ -1704,6 +1704,18 @@ static int add_any_file(
 
         /* journal_file_dump(f); */
 
+        if (j->newest_realtime_cutoff > 0 &&
+            f->header->state == STATE_ARCHIVED &&
+            le64toh(f->header->tail_entry_realtime) < j->newest_realtime_cutoff) {
+                log_debug("Skipping journal file %s, too old (tail_entry_realtime=%s, cutoff=%s).",
+                          f->path ?: "from fd",
+                          FORMAT_TIMESTAMP(le64toh(f->header->tail_entry_realtime)),
+                          FORMAT_TIMESTAMP(j->newest_realtime_cutoff));
+                f->close_fd = false;
+                (void) journal_file_close(f);
+                return 0;
+        }
+
         /* journal_file_open() generates an replacement fname if necessary, so we can use f->path. */
         r = ordered_hashmap_put(j->files, f->path, f);
         if (r < 0) {
@@ -2362,6 +2374,26 @@ static sd_journal *journal_new(int flags, const char *path, const char *namespac
          SD_JOURNAL_ALL_NAMESPACES |                    \
          SD_JOURNAL_INCLUDE_DEFAULT_NAMESPACE |         \
          SD_JOURNAL_ASSUME_IMMUTABLE)
+
+int journal_open_namespace_with_cutoff(sd_journal **ret, const char *name_space, int flags, usec_t cutoff_realtime_usec) {
+        _cleanup_(sd_journal_closep) sd_journal *j = NULL;
+        int r;
+
+        assert(ret);
+
+        j = journal_new(flags, NULL, name_space);
+        if (!j)
+                return -ENOMEM;
+
+        j->newest_realtime_cutoff = cutoff_realtime_usec;
+
+        r = add_search_paths(j);
+        if (r < 0)
+                return r;
+
+        *ret = TAKE_PTR(j);
+        return 0;
+}
 
 _public_ int sd_journal_open_namespace(sd_journal **ret, const char *name_space, int flags) {
         _cleanup_(sd_journal_closep) sd_journal *j = NULL;

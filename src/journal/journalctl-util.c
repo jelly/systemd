@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "alloc-util.h"
+#include "journal-internal.h"
 #include "glob-util.h"
 #include "hostname-util.h"
 #include "id128-util.h"
@@ -55,7 +56,14 @@ int acquire_journal(sd_journal **ret) {
                         return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "Connecting to a machine as non-root is not supported.");
 
                 r = journal_open_machine(&j, h ?: ".host", arg_journal_additional_open_flags);
-        } else
+        } else if (arg_since_set)
+                r = journal_open_namespace_with_cutoff(
+                                &j,
+                                arg_namespace,
+                                (arg_merge ? 0 : SD_JOURNAL_LOCAL_ONLY) |
+                                arg_namespace_flags | arg_journal_type | arg_journal_additional_open_flags,
+                                arg_since);
+        else
                 r = sd_journal_open_namespace(
                                 &j,
                                 arg_namespace,

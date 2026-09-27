@@ -126,7 +126,11 @@ typedef struct sd_journal {
         Hashmap *directories_by_wd;
 
         Hashmap *errors;
+
+        usec_t newest_realtime_cutoff;
 } sd_journal;
+
+int journal_open_namespace_with_cutoff(sd_journal **ret, const char *name_space, int flags, usec_t cutoff_realtime_usec);
 
 char* journal_make_match_string(sd_journal *j);
 void journal_print_header(sd_journal *j);
