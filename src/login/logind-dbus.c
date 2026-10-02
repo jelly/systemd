@@ -2547,7 +2547,7 @@ error:
         return r;
 }
 
-static int manager_setup_shutdown_timers(Manager* m) {
+static int manager_setup_shutdown_timers(Manager* m, bool is_sleep) {
         int r;
 
         assert(m);
@@ -2560,13 +2560,15 @@ static int manager_setup_shutdown_timers(Manager* m) {
         if (r < 0)
                 goto fail;
 
-        r = event_reset_time(m->event, &m->nologin_timeout_source,
-                             CLOCK_REALTIME,
-                             nologin_timeout_usec(m->scheduled_shutdown_timeout), 0,
-                             nologin_timeout_handler, m,
-                             0, "nologin-timeout", true);
-        if (r < 0)
-                goto fail;
+        if (!is_sleep) {
+                r = event_reset_time(m->event, &m->nologin_timeout_source,
+                                     CLOCK_REALTIME,
+                                     nologin_timeout_usec(m->scheduled_shutdown_timeout), 0,
+                                     nologin_timeout_handler, m,
+                                     0, "nologin-timeout", true);
+                if (r < 0)
+                        goto fail;
+        }
 
         return 0;
 
@@ -2642,7 +2644,7 @@ void manager_load_scheduled_shutdown(Manager *m) {
 
         free_and_replace(m->scheduled_shutdown_tty, tty);
 
-        r = manager_setup_shutdown_timers(m);
+        r = manager_setup_shutdown_timers(m, /*is_sleep=*/ HANDLE_ACTION_IS_SLEEP(m->scheduled_shutdown_action));
         if (r < 0)
                 return manager_reset_scheduled_shutdown(m);
 
@@ -2673,8 +2675,15 @@ static int method_schedule_shutdown(sd_bus_message *message, void *userdata, sd_
         }
 
         handle = handle_action_from_string(type);
-        if (!HANDLE_ACTION_IS_SHUTDOWN(handle))
-                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Unsupported shutdown type: %s", type);
+        if (!HANDLE_ACTION_IS_SHUTDOWN(handle) && !HANDLE_ACTION_IS_SLEEP(handle))
+                return sd_bus_error_setf(error, SD_BUS_ERROR_INVALID_ARGS, "Unsupported shutdown/sleep type: %s", type);
+
+        if (handle == HANDLE_SLEEP) {
+                handle = handle_action_sleep_select(m);
+                if (handle < 0)
+                        return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
+                                                "None of the configured sleep operations are supported");
+        }
 
         assert_se(a = handle_action_lookup(handle));
         assert(a->polkit_action);
@@ -2682,6 +2691,12 @@ static int method_schedule_shutdown(sd_bus_message *message, void *userdata, sd_
         r = manager_verify_shutdown_creds(m, message, /* link= */ NULL, a, 0, error);
         if (r != 0)
                 return r;
+
+        if (HANDLE_ACTION_IS_SLEEP(handle)) {
+                r = verify_sleep_support(a->sleep_operation, error);
+                if (r < 0)
+                        return r;
+        }
 
         if (elapse == USEC_INFINITY) {
                 if (m->maintenance_time) {
@@ -2704,7 +2719,7 @@ static int method_schedule_shutdown(sd_bus_message *message, void *userdata, sd_
         m->shutdown_dry_run = dry_run;
         m->scheduled_shutdown_timeout = elapse;
 
-        r = manager_setup_shutdown_timers(m);
+        r = manager_setup_shutdown_timers(m, HANDLE_ACTION_IS_SLEEP(handle));
         if (r < 0)
                 return r;
 

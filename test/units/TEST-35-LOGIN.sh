@@ -1058,6 +1058,12 @@ testcase_schedule_shutdown() {
     assert_in '\(st\) "poweroff"' "$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduledShutdown)"
     assert_eq "$(busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CancelScheduledShutdown)" "b true"
     test ! -f /run/nologin
+
+    busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduleShutdown "st" suspend "${schedule_time}"
+    assert_in '\(st\) "suspend"' "$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduledShutdown)"
+    # Sleep does not disallow new logins
+    test ! -f /run/nologin
+    assert_eq "$(busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CancelScheduledShutdown)" "b true"
 }
 
 setup_test_user
