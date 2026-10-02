@@ -1032,6 +1032,34 @@ testcase_restart() {
     done
 }
 
+teardown_schedule_shutdown() {
+    set +eux
+
+    shutdown -c
+}
+
+testcase_schedule_shutdown() {
+    trap teardown_schedule_shutdown RETURN
+
+    assert_eq "$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduledShutdown)" '(st) "" 18446744073709551615'
+
+    schedule_time=$(($(date +%s%6N) + 5000000))
+
+    (! busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduleShutdown "st" foobar "${schedule_time}")
+
+    test ! -f /run/nologin
+    busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduleShutdown "st" poweroff "${schedule_time}"
+    assert_in '\(st\) "poweroff"' "$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduledShutdown)"
+    test -f /run/nologin
+    shutdown -c
+    test ! -f /run/nologin
+
+    shutdown --no-wall +5
+    assert_in '\(st\) "poweroff"' "$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager ScheduledShutdown)"
+    assert_eq "$(busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CancelScheduledShutdown)" "b true"
+    test ! -f /run/nologin
+}
+
 setup_test_user
 test_write_dropin
 run_testcases
