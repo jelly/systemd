@@ -731,7 +731,9 @@ node /org/freedesktop/login1 {
       configured, <filename>systemd-logind</filename> will use the next time of the maintenance window
       instead. <varname>type</varname> can be one
       of <literal>poweroff</literal>, <literal>dry-poweroff</literal>, <literal>reboot</literal>,
-      <literal>dry-reboot</literal>, <literal>halt</literal>, and <literal>dry-halt</literal>. (The
+      <literal>dry-reboot</literal>, <literal>halt</literal>, <literal>dry-halt</literal>,
+      <literal>sleep</literal>, <literal>suspend</literal>, <literal>hibernate</literal>,
+      <literal>hybrid-sleep</literal>, and <literal>suspend-then-hibernate</literal>. (The
       <literal>dry-</literal> variants do not actually execute the shutdown action.)
       <function>CancelScheduledShutdown()</function> cancels a scheduled shutdown. The output parameter
       <varname>cancelled</varname> is true if a shutdown operation was scheduled.</para>
