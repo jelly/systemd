@@ -23,6 +23,13 @@ executables += [
                 ),
         },
         libexec_template + {
+                'name' : 'systemd-report-btrfs',
+                'sources' : files(
+                        'report-btrfs.c',
+                        'report-btrfs-server.c',
+                ),
+        },
+        libexec_template + {
                 'name' : 'systemd-report-cgroup',
                 'sources' : files(
                         'report-cgroup.c',
