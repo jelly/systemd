@@ -2195,6 +2195,51 @@ static int setup_wall_message_timer(Manager *m, sd_bus_message* message) {
         return 0;
 }
 
+static int verify_sleep_support(SleepOperation op, sd_bus_error *error) {
+        SleepSupport support;
+        int r;
+
+        r = sleep_supported_full(op, &support);
+        if (r < 0)
+                return r;
+        if (r == 0)
+                switch (support) {
+
+                case SLEEP_DISABLED:
+                        return sd_bus_error_setf(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
+                                                 "Sleep verb '%s' is disabled by config",
+                                                 sleep_operation_to_string(op));
+
+                case SLEEP_NOT_CONFIGURED:
+                case SLEEP_STATE_OR_MODE_NOT_SUPPORTED:
+                case SLEEP_ALARM_NOT_SUPPORTED:
+                        return sd_bus_error_setf(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
+                                                 "Sleep verb '%s' is not configured or configuration is not supported by kernel",
+                                                 sleep_operation_to_string(op));
+
+                case SLEEP_RESUME_NOT_SUPPORTED:
+                        return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
+                                                "Not running on EFI and resume= is not set, or noresume is set. No available method to resume from hibernation");
+
+                case SLEEP_RESUME_DEVICE_MISSING:
+                        return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
+                                                "Specified resume device is missing or is not an active swap device");
+
+                case SLEEP_RESUME_MISCONFIGURED:
+                        return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
+                                                "Invalid resume config: resume= is not populated yet resume_offset= is");
+
+                case SLEEP_NOT_ENOUGH_SWAP_SPACE:
+                        return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
+                                                "Not enough suitable swap space for hibernation available on compatible block devices and file systems");
+
+                default:
+                        assert_not_reached();
+                }
+
+        return 0;
+}
+
 static int method_do_shutdown_or_sleep(
                 Manager *m,
                 sd_bus_message *message,
@@ -2262,51 +2307,14 @@ static int method_do_shutdown_or_sleep(
                 assert_se(a = handle_action_lookup(selected));
 
         } else if (HANDLE_ACTION_IS_SLEEP(action)) {
-                SleepSupport support;
-
                 assert_se(a = handle_action_lookup(action));
 
                 assert(a->sleep_operation >= 0);
                 assert(a->sleep_operation < _SLEEP_OPERATION_MAX);
 
-                r = sleep_supported_full(a->sleep_operation, &support);
+                r = verify_sleep_support(a->sleep_operation, error);
                 if (r < 0)
                         return r;
-                if (r == 0)
-                        switch (support) {
-
-                        case SLEEP_DISABLED:
-                                return sd_bus_error_setf(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
-                                                         "Sleep verb '%s' is disabled by config",
-                                                         sleep_operation_to_string(a->sleep_operation));
-
-                        case SLEEP_NOT_CONFIGURED:
-                        case SLEEP_STATE_OR_MODE_NOT_SUPPORTED:
-                        case SLEEP_ALARM_NOT_SUPPORTED:
-                                return sd_bus_error_setf(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
-                                                         "Sleep verb '%s' is not configured or configuration is not supported by kernel",
-                                                         sleep_operation_to_string(a->sleep_operation));
-
-                        case SLEEP_RESUME_NOT_SUPPORTED:
-                                return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
-                                                        "Not running on EFI and resume= is not set, or noresume is set. No available method to resume from hibernation");
-
-                        case SLEEP_RESUME_DEVICE_MISSING:
-                                return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
-                                                        "Specified resume device is missing or is not an active swap device");
-
-                        case SLEEP_RESUME_MISCONFIGURED:
-                                return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
-                                                        "Invalid resume config: resume= is not populated yet resume_offset= is");
-
-                        case SLEEP_NOT_ENOUGH_SWAP_SPACE:
-                                return sd_bus_error_set(error, BUS_ERROR_SLEEP_VERB_NOT_SUPPORTED,
-                                                        "Not enough suitable swap space for hibernation available on compatible block devices and file systems");
-
-                        default:
-                                assert_not_reached();
-
-                        }
         } else if (!a)
                 assert_se(a = handle_action_lookup(action));
 
