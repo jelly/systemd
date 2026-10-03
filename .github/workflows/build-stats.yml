@@ -21,6 +21,15 @@ jobs:
           persist-credentials: false
       - uses: systemd/mkosi@71d7b67e01dc47ab5c51f24866c3e2195b9701d2
 
+      - name: Checkout systemd stats repository
+        uses: actions/checkout@v7
+        with:
+          path: stats_repo
+          repository: jelly/systemd-stats
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          # this is needed so we can push to a different repository
+          fetch-depth: 0
+
       # Freeing up disk space with rm -rf can take multiple minutes. Since we don't need the extra free space
       # immediately, we remove the files in the background. However, we first move them to a different location
       # so that nothing tries to use anything in these directories anymore while we're busy deleting them.
@@ -60,4 +69,19 @@ jobs:
         run: sudo mkosi box -- meson compile -C build
 
       - name: Collect stats
-        run: mkosi box -- ./tools/binary-sizes.py build
+        run: |
+          commit=$(git rev-parse HEAD)
+          count=$(printf "%08d" $(git rev-list --count HEAD))
+          stats_file="${count}-${commit}.json"
+          mkosi box -- \
+            ./tools/binary-sizes.py \
+            --output stats/${stats_file} build
+
+          cd stats_repo/stats
+          git config --global user.name "GitHub Workflow"
+          git config --global user.email "init@systemd.io"
+
+          git add $stats_file
+          git commit -m "Add ${commit} build stats" $stats_file
+          git show
+          git push git@github.com:jelly/systemd-stats HEAD
