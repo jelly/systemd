@@ -75,13 +75,13 @@ jobs:
           stats_file="${count}-${commit}.json"
           mkosi box -- \
             ./tools/binary-sizes.py \
-            --output stats/${stats_file} build
+            --output stats_repo/stats/${stats_file} build
 
-          cd stats_repo/stats
+          cd stats_repo
           git config --global user.name "GitHub Workflow"
           git config --global user.email "init@systemd.io"
 
-          git add $stats_file
+          git add "${stats}/${stats_file}"
           git commit -m "Add ${commit} build stats" $stats_file
           git show
           git push git@github.com:jelly/systemd-stats HEAD
