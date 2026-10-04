@@ -80,10 +80,12 @@ jobs:
       - name: Collect stats
         run: |
           set -eux
-          commit=$(git -C src rev-parse HEAD)
-          count=$(printf "%08d" $(git -C src rev-list --count HEAD))
+
+          commit_sha=$(git -C src rev-parse HEAD)
+          commit_count=$(printf "%08d" $(git -C src rev-list --count HEAD))
           stats_dir=$(realpath ../stats/stats)
-          stats_file="${count}-${commit}.json"
+          stats_file="${commit_count}-${commit_sha}.json"
+
           mkosi -C src \
             box -- \
             ./tools/binary-sizes.py \
@@ -94,6 +96,6 @@ jobs:
           git config --global user.email "init@systemd.io"
 
           git add "${stats_file}"
-          git commit -m "Add ${commit} build stats" .
+          git commit -m "Add ${commit_sha} build stats" .
           git show --stat
           git push git@github.com:jelly/systemd-stats HEAD
