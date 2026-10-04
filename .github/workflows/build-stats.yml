@@ -83,7 +83,7 @@ jobs:
 
           commit_sha=$(git -C src rev-parse HEAD)
           commit_count=$(printf "%08d" $(git -C src rev-list --count HEAD))
-          stats_dir=$(realpath ../stats/stats)
+          stats_dir=$(realpath stats/stats)
           stats_file="${commit_count}-${commit_sha}.json"
 
           mkosi -C src \
